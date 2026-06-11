@@ -12,7 +12,7 @@ st.markdown("""
         Multiphase Flow Correlation Predictor
     </h1>
     <p style='text-align: center; color: gray; font-size: 18px;'>
-        Upload your well or pipeline data to instantly generate AI-driven predictions.
+        Upload a dataset or manually enter parameters to instantly generate AI-driven predictions.
     </p>
     <hr>
 """, unsafe_allow_html=True)
@@ -20,12 +20,8 @@ st.markdown("""
 # --- 3. MODEL LOADING ---
 @st.cache_resource
 def load_artifacts(model_type):
-    # Dynamically find the folder where app.py is currently located
     current_dir = os.path.dirname(os.path.abspath(__file__))
-    
-    # Safely attach the 'models' folder to that path
     path = os.path.join(current_dir, "Models") + "/"
-    
     model = joblib.load(f"{path}xgb_model_{model_type}.pkl")
     scaler = joblib.load(f"{path}scaler_{model_type}.pkl")
     le = joblib.load(f"{path}le_{model_type}.pkl")
@@ -37,6 +33,28 @@ base_features = [
     'Oil_API', 'Oil_Viscosity', 'Gas_SG', 'WHP', 'WHT'
 ]
 
+# --- HELPER FUNCTION: RUN PREDICTION ON A SINGLE ROW ---
+def predict_single_row(input_dict, model_type):
+    # Convert the dictionary of manual inputs into a 1-row Pandas DataFrame
+    df = pd.DataFrame([input_dict])
+    
+    # Run the exact same feature engineering
+    df['Total_Liquid'] = df['Oil_Rate'] + df['Water_Rate']
+    df['Gas_Liquid_Ratio'] = (df['Gas_Rate'] * 1000) / (df['Total_Liquid'] + 1)
+    df['Tubing_Area'] = 3.14159 * (df['Tubing_ID'] / 2)**2
+    df['Liquid_Velocity_Proxy'] = df['Total_Liquid'] / df['Tubing_Area']
+    df['Gas_Velocity_Proxy'] = (df['Gas_Rate'] * 1000) / df['Tubing_Area']
+    
+    final_features = base_features + ['Total_Liquid', 'Gas_Liquid_Ratio', 'Liquid_Velocity_Proxy', 'Gas_Velocity_Proxy']
+    X = df[final_features].copy()
+    X.fillna(X.median(numeric_only=True), inplace=True)
+    
+    # Load model and predict
+    model, scaler, le = load_artifacts(model_type)
+    prediction = model.predict(scaler.transform(X))
+    return le.inverse_transform(prediction)[0]
+
+
 # --- 4. TABS LAYOUT ---
 tab_vertical, tab_horizontal = st.tabs(["🛢️ Vertical (Well) Model", "🛤️ Horizontal (Pipeline) Model"])
 
@@ -44,139 +62,214 @@ tab_vertical, tab_horizontal = st.tabs(["🛢️ Vertical (Well) Model", "🛤�
 #           VERTICAL MODEL TAB
 # ==========================================
 with tab_vertical:
-    col1_v, col2_v = st.columns([1, 2])
     model_type_v = "vertical"
-    memory_tag_v = f"{model_type_v}_results"
     
-    with col1_v:
-        with st.container(border=True):
-            st.markdown("### 📥 Data Input")
-            st.info("Upload your Vertical Well parameters.")
-            
-            with st.expander("ℹ️ View Required Columns"):
-                st.code(", ".join(base_features))
-                
-            uploaded_file_v = st.file_uploader("Upload dataset", type=['csv', 'xlsx', 'xls'], key="upload_v")
-            
-            if uploaded_file_v is not None:
-                try:
-                    if uploaded_file_v.name.endswith('.csv'):
-                        df_v = pd.read_csv(uploaded_file_v)
-                    elif uploaded_file_v.name.endswith('.xlsx'):
-                        df_v = pd.read_excel(uploaded_file_v, engine='openpyxl')
-                    elif uploaded_file_v.name.endswith('.xls'):
-                        df_v = pd.read_excel(uploaded_file_v, engine='xlrd')
-                except Exception as e:
-                    st.error(f"Error reading file: {e}")
-                    st.stop()
-                    
-                missing_cols = [col for col in base_features if col not in df_v.columns]
-                if missing_cols:
-                    st.error(f"Missing columns: {', '.join(missing_cols)}")
-                else:
-                    st.success("✅ Validation Passed!")
-                    with st.spinner("Running AI Model..."):
-                        model, scaler, le = load_artifacts(model_type_v)
-                        processing_df = df_v.copy()
-                        
-                        processing_df['Total_Liquid'] = processing_df['Oil_Rate'] + processing_df['Water_Rate']
-                        processing_df['Gas_Liquid_Ratio'] = (processing_df['Gas_Rate'] * 1000) / (processing_df['Total_Liquid'] + 1)
-                        processing_df['Tubing_Area'] = 3.14159 * (processing_df['Tubing_ID'] / 2)**2
-                        processing_df['Liquid_Velocity_Proxy'] = processing_df['Total_Liquid'] / processing_df['Tubing_Area']
-                        processing_df['Gas_Velocity_Proxy'] = (processing_df['Gas_Rate'] * 1000) / processing_df['Tubing_Area']
-                        
-                        final_features = base_features + ['Total_Liquid', 'Gas_Liquid_Ratio', 'Liquid_Velocity_Proxy', 'Gas_Velocity_Proxy']
-                        X = processing_df[final_features].copy()
-                        X.fillna(X.median(numeric_only=True), inplace=True)
-                        
-                        predictions = model.predict(scaler.transform(X))
-                        df_v['Recommended_Correlation'] = le.inverse_transform(predictions)
-                        st.session_state[memory_tag_v] = df_v
+    # The New Input Toggle
+    input_mode_v = st.radio("Choose Input Method:", ["📁 Upload Dataset", "✍️ Manual Entry"], horizontal=True, key="radio_v")
+    st.markdown("<br>", unsafe_allow_html=True)
+    
+    if input_mode_v == "✍️ Manual Entry":
+        with st.form("manual_form_v"):
+            st.subheader("Well Geometry")
+            g1, g2, g3, g4 = st.columns(4)
+            md = g1.number_input("MD (ft)", value=10000.0)
+            tvd = g2.number_input("TVD (ft)", value=8000.0)
+            tubing_id = g3.number_input("Tubing ID (in)", value=2.992)
+            dev_angle = g4.number_input("Deviation Angle (°)", value=0.0)
 
-    with col2_v:
-        with st.container(border=True):
-            st.markdown("### 📊 Vertical Predictions Dashboard")
-            if memory_tag_v in st.session_state:
-                saved_df_v = st.session_state[memory_tag_v]
+            st.subheader("Production Rates")
+            r1, r2, r3, r4 = st.columns(4)
+            oil_rate = r1.number_input("Oil Rate (bopd)", value=500.0)
+            water_rate = r2.number_input("Water Rate (bwpd)", value=100.0)
+            gas_rate = r3.number_input("Gas Rate (mscfd)", value=250.0)
+            water_cut = r4.number_input("Water Cut (%)", value=16.6)
+
+            st.subheader("Fluid & Surface Properties")
+            f1, f2, f3, f4, f5, f6 = st.columns(6)
+            gor = f1.number_input("GOR (scf/stb)", value=500.0)
+            oil_api = f2.number_input("Oil API", value=35.0)
+            oil_visc = f3.number_input("Oil Viscosity (cP)", value=2.5)
+            gas_sg = f4.number_input("Gas SG", value=0.7)
+            whp = f5.number_input("WHP (psi)", value=250.0)
+            wht = f6.number_input("WHT (°F)", value=140.0)
+
+            submit_v = st.form_submit_button("🚀 Generate Prediction", type="primary", use_container_width=True)
+
+        if submit_v:
+            # Bundle inputs matching the exact base_features list
+            manual_data_v = {
+                'MD': md, 'TVD': tvd, 'Tubing_ID': tubing_id, 'Deviation_Angle': dev_angle,
+                'Oil_Rate': oil_rate, 'Water_Rate': water_rate, 'Gas_Rate': gas_rate, 'Water_Cut': water_cut,
+                'GOR': gor, 'Oil_API': oil_api, 'Oil_Viscosity': oil_visc, 'Gas_SG': gas_sg, 'WHP': whp, 'WHT': wht
+            }
+            with st.spinner("Analyzing Parameters..."):
+                result = predict_single_row(manual_data_v, model_type_v)
+                st.success(f"### 🎯 Recommended Vertical Correlation: **{result}**")
+
+    else:
+        # EXISTING FILE UPLOAD LOGIC
+        col1_v, col2_v = st.columns([1, 2])
+        memory_tag_v = f"{model_type_v}_results"
+        
+        with col1_v:
+            with st.container(border=True):
+                st.markdown("### 📥 Data Input")
+                uploaded_file_v = st.file_uploader("Upload Vertical dataset", type=['csv', 'xlsx', 'xls'], key="upload_v")
                 
-                m1, m2 = st.columns(2)
-                m1.metric("Data Points Processed", len(saved_df_v))
-                m2.metric("Top Recommendation", saved_df_v['Recommended_Correlation'].mode()[0])
-                
-                st.dataframe(saved_df_v, use_container_width=True)
-                
-                csv_v = saved_df_v.to_csv(index=False).encode('utf-8')
-                st.download_button("📥 Download Vertical Predictions", data=csv_v, file_name='vertical_predictions.csv', mime='text/csv', key="dl_v")
-            else:
-                st.write("Awaiting dataset upload. Your predictions will appear here.")
+                if uploaded_file_v is not None:
+                    try:
+                        if uploaded_file_v.name.endswith('.csv'):
+                            df_v = pd.read_csv(uploaded_file_v)
+                        elif uploaded_file_v.name.endswith('.xlsx'):
+                            df_v = pd.read_excel(uploaded_file_v, engine='openpyxl')
+                        elif uploaded_file_v.name.endswith('.xls'):
+                            df_v = pd.read_excel(uploaded_file_v, engine='xlrd')
+                    except Exception as e:
+                        st.error(f"Error reading file: {e}")
+                        st.stop()
+                        
+                    missing_cols = [col for col in base_features if col not in df_v.columns]
+                    if missing_cols:
+                        st.error(f"Missing columns: {', '.join(missing_cols)}")
+                    else:
+                        st.success("✅ Validation Passed!")
+                        with st.spinner("Running AI Model..."):
+                            model, scaler, le = load_artifacts(model_type_v)
+                            processing_df = df_v.copy()
+                            
+                            processing_df['Total_Liquid'] = processing_df['Oil_Rate'] + processing_df['Water_Rate']
+                            processing_df['Gas_Liquid_Ratio'] = (processing_df['Gas_Rate'] * 1000) / (processing_df['Total_Liquid'] + 1)
+                            processing_df['Tubing_Area'] = 3.14159 * (processing_df['Tubing_ID'] / 2)**2
+                            processing_df['Liquid_Velocity_Proxy'] = processing_df['Total_Liquid'] / processing_df['Tubing_Area']
+                            processing_df['Gas_Velocity_Proxy'] = (processing_df['Gas_Rate'] * 1000) / processing_df['Tubing_Area']
+                            
+                            final_features = base_features + ['Total_Liquid', 'Gas_Liquid_Ratio', 'Liquid_Velocity_Proxy', 'Gas_Velocity_Proxy']
+                            X = processing_df[final_features].copy()
+                            X.fillna(X.median(numeric_only=True), inplace=True)
+                            
+                            predictions = model.predict(scaler.transform(X))
+                            df_v['Recommended_Correlation'] = le.inverse_transform(predictions)
+                            st.session_state[memory_tag_v] = df_v
+
+        with col2_v:
+            with st.container(border=True):
+                st.markdown("### 📊 Vertical Predictions Dashboard")
+                if memory_tag_v in st.session_state:
+                    saved_df_v = st.session_state[memory_tag_v]
+                    m1, m2 = st.columns(2)
+                    m1.metric("Data Points Processed", len(saved_df_v))
+                    m2.metric("Top Recommendation", saved_df_v['Recommended_Correlation'].mode()[0])
+                    st.dataframe(saved_df_v, use_container_width=True)
+                    csv_v = saved_df_v.to_csv(index=False).encode('utf-8')
+                    st.download_button("📥 Download Vertical Predictions", data=csv_v, file_name='vertical_predictions.csv', mime='text/csv', key="dl_v")
+                else:
+                    st.write("Awaiting dataset upload. Your predictions will appear here.")
 
 
 # ==========================================
 #           HORIZONTAL MODEL TAB
 # ==========================================
 with tab_horizontal:
-    col1_h, col2_h = st.columns([1, 2])
     model_type_h = "horizontal"
-    memory_tag_h = f"{model_type_h}_results"
     
-    with col1_h:
-        with st.container(border=True):
-            st.markdown("### 📥 Data Input")
-            st.info("Upload your Horizontal Pipeline parameters.")
-            
-            with st.expander("ℹ️ View Required Columns"):
-                st.code(", ".join(base_features))
-                
-            uploaded_file_h = st.file_uploader("Upload dataset", type=['csv', 'xlsx', 'xls'], key="upload_h")
-            
-            if uploaded_file_h is not None:
-                try:
-                    if uploaded_file_h.name.endswith('.csv'):
-                        df_h = pd.read_csv(uploaded_file_h)
-                    elif uploaded_file_h.name.endswith('.xlsx'):
-                        df_h = pd.read_excel(uploaded_file_h, engine='openpyxl')
-                    elif uploaded_file_h.name.endswith('.xls'):
-                        df_h = pd.read_excel(uploaded_file_h, engine='xlrd')
-                except Exception as e:
-                    st.error(f"Error reading file: {e}")
-                    st.stop()
-                    
-                missing_cols = [col for col in base_features if col not in df_h.columns]
-                if missing_cols:
-                    st.error(f"Missing columns: {', '.join(missing_cols)}")
-                else:
-                    st.success("✅ Validation Passed!")
-                    with st.spinner("Running AI Model..."):
-                        model, scaler, le = load_artifacts(model_type_h)
-                        processing_df = df_h.copy()
-                        
-                        processing_df['Total_Liquid'] = processing_df['Oil_Rate'] + processing_df['Water_Rate']
-                        processing_df['Gas_Liquid_Ratio'] = (processing_df['Gas_Rate'] * 1000) / (processing_df['Total_Liquid'] + 1)
-                        processing_df['Tubing_Area'] = 3.14159 * (processing_df['Tubing_ID'] / 2)**2
-                        processing_df['Liquid_Velocity_Proxy'] = processing_df['Total_Liquid'] / processing_df['Tubing_Area']
-                        processing_df['Gas_Velocity_Proxy'] = (processing_df['Gas_Rate'] * 1000) / processing_df['Tubing_Area']
-                        
-                        final_features = base_features + ['Total_Liquid', 'Gas_Liquid_Ratio', 'Liquid_Velocity_Proxy', 'Gas_Velocity_Proxy']
-                        X = processing_df[final_features].copy()
-                        X.fillna(X.median(numeric_only=True), inplace=True)
-                        
-                        predictions = model.predict(scaler.transform(X))
-                        df_h['Recommended_Correlation'] = le.inverse_transform(predictions)
-                        st.session_state[memory_tag_h] = df_h
+    # The New Input Toggle
+    input_mode_h = st.radio("Choose Input Method:", ["📁 Upload Dataset", "✍️ Manual Entry"], horizontal=True, key="radio_h")
+    st.markdown("<br>", unsafe_allow_html=True)
+    
+    if input_mode_h == "✍️ Manual Entry":
+        with st.form("manual_form_h"):
+            st.subheader("Pipeline / Well Geometry")
+            g1, g2, g3, g4 = st.columns(4)
+            md = g1.number_input("MD (ft)", value=15000.0, key="h_md")
+            tvd = g2.number_input("TVD (ft)", value=8000.0, key="h_tvd")
+            tubing_id = g3.number_input("Tubing ID (in)", value=2.992, key="h_id")
+            dev_angle = g4.number_input("Deviation Angle (°)", value=90.0, key="h_dev") # Default to 90 for horizontal
 
-    with col2_h:
-        with st.container(border=True):
-            st.markdown("### 📊 Horizontal Predictions Dashboard")
-            if memory_tag_h in st.session_state:
-                saved_df_h = st.session_state[memory_tag_h]
+            st.subheader("Production Rates")
+            r1, r2, r3, r4 = st.columns(4)
+            oil_rate = r1.number_input("Oil Rate (bopd)", value=1200.0, key="h_oil")
+            water_rate = r2.number_input("Water Rate (bwpd)", value=300.0, key="h_wat")
+            gas_rate = r3.number_input("Gas Rate (mscfd)", value=1000.0, key="h_gas")
+            water_cut = r4.number_input("Water Cut (%)", value=20.0, key="h_wc")
+
+            st.subheader("Fluid & Surface Properties")
+            f1, f2, f3, f4, f5, f6 = st.columns(6)
+            gor = f1.number_input("GOR (scf/stb)", value=833.0, key="h_gor")
+            oil_api = f2.number_input("Oil API", value=35.0, key="h_api")
+            oil_visc = f3.number_input("Oil Viscosity (cP)", value=3.5, key="h_visc")
+            gas_sg = f4.number_input("Gas SG", value=0.65, key="h_sg")
+            whp = f5.number_input("WHP (psi)", value=450.0, key="h_whp")
+            wht = f6.number_input("WHT (°F)", value=155.0, key="h_wht")
+
+            submit_h = st.form_submit_button("🚀 Generate Prediction", type="primary", use_container_width=True)
+
+        if submit_h:
+            # Bundle inputs
+            manual_data_h = {
+                'MD': md, 'TVD': tvd, 'Tubing_ID': tubing_id, 'Deviation_Angle': dev_angle,
+                'Oil_Rate': oil_rate, 'Water_Rate': water_rate, 'Gas_Rate': gas_rate, 'Water_Cut': water_cut,
+                'GOR': gor, 'Oil_API': oil_api, 'Oil_Viscosity': oil_visc, 'Gas_SG': gas_sg, 'WHP': whp, 'WHT': wht
+            }
+            with st.spinner("Analyzing Parameters..."):
+                result = predict_single_row(manual_data_h, model_type_h)
+                st.success(f"### 🎯 Recommended Horizontal Correlation: **{result}**")
+
+    else:
+        # EXISTING FILE UPLOAD LOGIC
+        col1_h, col2_h = st.columns([1, 2])
+        memory_tag_h = f"{model_type_h}_results"
+        
+        with col1_h:
+            with st.container(border=True):
+                st.markdown("### 📥 Data Input")
+                uploaded_file_h = st.file_uploader("Upload Horizontal dataset", type=['csv', 'xlsx', 'xls'], key="upload_h")
                 
-                m1, m2 = st.columns(2)
-                m1.metric("Data Points Processed", len(saved_df_h))
-                m2.metric("Top Recommendation", saved_df_h['Recommended_Correlation'].mode()[0])
-                
-                st.dataframe(saved_df_h, use_container_width=True)
-                
-                csv_h = saved_df_h.to_csv(index=False).encode('utf-8')
-                st.download_button("📥 Download Horizontal Predictions", data=csv_h, file_name='horizontal_predictions.csv', mime='text/csv', key="dl_h")
-            else:
-                st.write("Awaiting dataset upload. Your predictions will appear here.")
+                if uploaded_file_h is not None:
+                    try:
+                        if uploaded_file_h.name.endswith('.csv'):
+                            df_h = pd.read_csv(uploaded_file_h)
+                        elif uploaded_file_h.name.endswith('.xlsx'):
+                            df_h = pd.read_excel(uploaded_file_h, engine='openpyxl')
+                        elif uploaded_file_h.name.endswith('.xls'):
+                            df_h = pd.read_excel(uploaded_file_h, engine='xlrd')
+                    except Exception as e:
+                        st.error(f"Error reading file: {e}")
+                        st.stop()
+                        
+                    missing_cols = [col for col in base_features if col not in df_h.columns]
+                    if missing_cols:
+                        st.error(f"Missing columns: {', '.join(missing_cols)}")
+                    else:
+                        st.success("✅ Validation Passed!")
+                        with st.spinner("Running AI Model..."):
+                            model, scaler, le = load_artifacts(model_type_h)
+                            processing_df = df_h.copy()
+                            
+                            processing_df['Total_Liquid'] = processing_df['Oil_Rate'] + processing_df['Water_Rate']
+                            processing_df['Gas_Liquid_Ratio'] = (processing_df['Gas_Rate'] * 1000) / (processing_df['Total_Liquid'] + 1)
+                            processing_df['Tubing_Area'] = 3.14159 * (processing_df['Tubing_ID'] / 2)**2
+                            processing_df['Liquid_Velocity_Proxy'] = processing_df['Total_Liquid'] / processing_df['Tubing_Area']
+                            processing_df['Gas_Velocity_Proxy'] = (processing_df['Gas_Rate'] * 1000) / processing_df['Tubing_Area']
+                            
+                            final_features = base_features + ['Total_Liquid', 'Gas_Liquid_Ratio', 'Liquid_Velocity_Proxy', 'Gas_Velocity_Proxy']
+                            X = processing_df[final_features].copy()
+                            X.fillna(X.median(numeric_only=True), inplace=True)
+                            
+                            predictions = model.predict(scaler.transform(X))
+                            df_h['Recommended_Correlation'] = le.inverse_transform(predictions)
+                            st.session_state[memory_tag_h] = df_h
+
+        with col2_h:
+            with st.container(border=True):
+                st.markdown("### 📊 Horizontal Predictions Dashboard")
+                if memory_tag_h in st.session_state:
+                    saved_df_h = st.session_state[memory_tag_h]
+                    m1, m2 = st.columns(2)
+                    m1.metric("Data Points Processed", len(saved_df_h))
+                    m2.metric("Top Recommendation", saved_df_h['Recommended_Correlation'].mode()[0])
+                    st.dataframe(saved_df_h, use_container_width=True)
+                    csv_h = saved_df_h.to_csv(index=False).encode('utf-8')
+                    st.download_button("📥 Download Horizontal Predictions", data=csv_h, file_name='horizontal_predictions.csv', mime='text/csv', key="dl_h")
+                else:
+                    st.write("Awaiting dataset upload. Your predictions will appear here.")
+               
