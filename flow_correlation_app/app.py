@@ -24,7 +24,7 @@ def load_artifacts(model_type):
     current_dir = os.path.dirname(os.path.abspath(__file__))
     
     # Safely attach the 'models' folder to that path
-    path = os.path.join(current_dir, "models") + "/"
+    path = os.path.join(current_dir, "Models") + "/"
     
     model = joblib.load(f"{path}xgb_model_{model_type}.pkl")
     scaler = joblib.load(f"{path}scaler_{model_type}.pkl")
