@@ -8,13 +8,25 @@ st.set_page_config(page_title="Flow Predictor", layout="wide")
 
 # --- 2. CUSTOM HEADER ---
 st.markdown("""
-    <h1 style='text-align: center; color: #F39C12; font-family: sans-serif;'>
+    <style>
+    @import url('https://fonts.googleapis.com/css2?family=Playfair+Display:ital,wght@0,400;0,600;1,400&display=swap');
+    
+    .lunar-title {
+        font-family: 'Playfair Display', serif;
+        text-align: center; 
+        color: #D4AF37;
+        font-weight: 600;
+        letter-spacing: 1px;
+    }
+    </style>
+
+    <h1 class='lunar-title'>
         Multiphase Flow Correlation Predictor
     </h1>
-    <p style='text-align: center; color: gray; font-size: 18px;'>
+    <p style='text-align: center; color: #F4EFFF; font-size: 18px;'>
         Upload a dataset or manually enter parameters to instantly generate AI-driven predictions.
     </p>
-    <hr>
+    <hr style='border-color: #2D1B4E;'>
 """, unsafe_allow_html=True)
 
 # --- 3. MODEL LOADING ---
@@ -35,7 +47,6 @@ base_features = [
 
 # --- HELPER FUNCTION: RUN PREDICTION ON A SINGLE ROW ---
 def predict_single_row(input_dict, model_type):
-    # Convert the dictionary of manual inputs into a 1-row Pandas DataFrame
     df = pd.DataFrame([input_dict])
     
     # Define standard baseline values to use IF the user leaves a field blank
@@ -73,8 +84,6 @@ tab_vertical, tab_horizontal = st.tabs(["🛢️ Vertical (Well) Model", "🛤�
 # ==========================================
 with tab_vertical:
     model_type_v = "vertical"
-    
-    # The New Input Toggle
     input_mode_v = st.radio("Choose Input Method:", ["📁 Upload Dataset", "✍️ Manual Entry"], horizontal=True, key="radio_v")
     st.markdown("<br>", unsafe_allow_html=True)
     
@@ -105,7 +114,7 @@ with tab_vertical:
 
             submit_v = st.form_submit_button("🚀 Generate Prediction", type="primary", use_container_width=True)
 
-       if submit_v:
+        if submit_v:
             manual_data_v = {
                 'MD': md, 'TVD': tvd, 'Tubing_ID': tubing_id, 'Deviation_Angle': dev_angle,
                 'Oil_Rate': oil_rate, 'Water_Rate': water_rate, 'Gas_Rate': gas_rate, 'Water_Cut': water_cut,
@@ -116,13 +125,11 @@ with tab_vertical:
                 result = predict_single_row(manual_data_v, model_type_v)
                 st.success(f"### 🎯 Recommended Vertical Correlation: **{result}**")
                 
-                # Check if any fields were left blank to inform the user
                 missing_keys = [k for k, v in manual_data_v.items() if v is None]
                 if missing_keys:
                     st.info(f"💡 **Note:** You left some fields blank. The AI automatically assumed standard baseline values for: {', '.join(missing_keys)}")
 
     else:
-        # EXISTING FILE UPLOAD LOGIC
         col1_v, col2_v = st.columns([1, 2])
         memory_tag_v = f"{model_type_v}_results"
         
@@ -186,8 +193,6 @@ with tab_vertical:
 # ==========================================
 with tab_horizontal:
     model_type_h = "horizontal"
-    
-    # The New Input Toggle
     input_mode_h = st.radio("Choose Input Method:", ["📁 Upload Dataset", "✍️ Manual Entry"], horizontal=True, key="radio_h")
     st.markdown("<br>", unsafe_allow_html=True)
     
@@ -217,7 +222,8 @@ with tab_horizontal:
             wht = f6.number_input("WHT (°F)", value=None, placeholder="e.g. 155", key="h_wht")
 
             submit_h = st.form_submit_button("🚀 Generate Prediction", type="primary", use_container_width=True)
-if submit_h:
+
+        if submit_h:
             manual_data_h = {
                 'MD': md, 'TVD': tvd, 'Tubing_ID': tubing_id, 'Deviation_Angle': dev_angle,
                 'Oil_Rate': oil_rate, 'Water_Rate': water_rate, 'Gas_Rate': gas_rate, 'Water_Cut': water_cut,
@@ -228,13 +234,11 @@ if submit_h:
                 result = predict_single_row(manual_data_h, model_type_h)
                 st.success(f"### 🎯 Recommended Horizontal Correlation: **{result}**")
                 
-                # Check if any fields were left blank to inform the user
                 missing_keys = [k for k, v in manual_data_h.items() if v is None]
                 if missing_keys:
                     st.info(f"💡 **Note:** You left some fields blank. The AI automatically assumed standard baseline values for: {', '.join(missing_keys)}")
 
     else:
-        # EXISTING FILE UPLOAD LOGIC
         col1_h, col2_h = st.columns([1, 2])
         memory_tag_h = f"{model_type_h}_results"
         
@@ -291,4 +295,3 @@ if submit_h:
                     st.download_button("📥 Download Horizontal Predictions", data=csv_h, file_name='horizontal_predictions.csv', mime='text/csv', key="dl_h")
                 else:
                     st.write("Awaiting dataset upload. Your predictions will appear here.")
-               
