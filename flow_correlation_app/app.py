@@ -121,13 +121,17 @@ with tab_vertical:
                 'GOR': gor, 'Oil_API': oil_api, 'Oil_Viscosity': oil_visc, 'Gas_SG': gas_sg, 'WHP': whp, 'WHT': wht
             }
             
-            with st.spinner("Analyzing Parameters..."):
-                result = predict_single_row(manual_data_v, model_type_v)
-                st.success(f"### 🎯 Recommended Vertical Correlation: **{result}**")
-                
-                missing_keys = [k for k, v in manual_data_v.items() if v is None]
-                if missing_keys:
-                    st.info(f"💡 **Note:** You left some fields blank. The AI automatically assumed standard baseline values for: {', '.join(missing_keys)}")
+            # --- NEW BLANK FORM CHECK ---
+            if all(v is None for v in manual_data_v.values()):
+                st.warning("⚠️ You didn't enter any data! Please fill in at least one field to generate a prediction.")
+            else:
+                with st.spinner("Analyzing Parameters..."):
+                    result = predict_single_row(manual_data_v, model_type_v)
+                    st.success(f"### 🎯 Recommended Vertical Correlation: **{result}**")
+                    
+                    missing_keys = [k for k, v in manual_data_v.items() if v is None]
+                    if missing_keys:
+                        st.info(f"💡 **Note:** You left some fields blank. The AI automatically assumed standard baseline values for: {', '.join(missing_keys)}")
 
     else:
         col1_v, col2_v = st.columns([1, 2])
@@ -230,13 +234,17 @@ with tab_horizontal:
                 'GOR': gor, 'Oil_API': oil_api, 'Oil_Viscosity': oil_visc, 'Gas_SG': gas_sg, 'WHP': whp, 'WHT': wht
             }
             
-            with st.spinner("Analyzing Parameters..."):
-                result = predict_single_row(manual_data_h, model_type_h)
-                st.success(f"### 🎯 Recommended Horizontal Correlation: **{result}**")
-                
-                missing_keys = [k for k, v in manual_data_h.items() if v is None]
-                if missing_keys:
-                    st.info(f"💡 **Note:** You left some fields blank. The AI automatically assumed standard baseline values for: {', '.join(missing_keys)}")
+            # --- NEW BLANK FORM CHECK ---
+            if all(v is None for v in manual_data_h.values()):
+                st.warning("⚠️ You didn't enter any data! Please fill in at least one field to generate a prediction.")
+            else:
+                with st.spinner("Analyzing Parameters..."):
+                    result = predict_single_row(manual_data_h, model_type_h)
+                    st.success(f"### 🎯 Recommended Horizontal Correlation: **{result}**")
+                    
+                    missing_keys = [k for k, v in manual_data_h.items() if v is None]
+                    if missing_keys:
+                        st.info(f"💡 **Note:** You left some fields blank. The AI automatically assumed standard baseline values for: {', '.join(missing_keys)}")
 
     else:
         col1_h, col2_h = st.columns([1, 2])
