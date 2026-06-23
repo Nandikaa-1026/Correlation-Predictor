@@ -38,7 +38,18 @@ def predict_single_row(input_dict, model_type):
     # Convert the dictionary of manual inputs into a 1-row Pandas DataFrame
     df = pd.DataFrame([input_dict])
     
-    # Run the exact same feature engineering
+    # Define standard baseline values to use IF the user leaves a field blank
+    baseline_defaults = {
+        'MD': 10000.0, 'TVD': 8000.0, 'Tubing_ID': 2.992, 'Deviation_Angle': 0.0 if model_type == 'vertical' else 90.0,
+        'Oil_Rate': 500.0, 'Water_Rate': 100.0, 'Gas_Rate': 250.0, 'Water_Cut': 15.0,
+        'GOR': 500.0, 'Oil_API': 35.0, 'Oil_Viscosity': 2.5, 'Gas_SG': 0.7,
+        'WHP': 250.0, 'WHT': 140.0
+    }
+    
+    # Fill any blanks (None/NaN) with the baseline defaults
+    df.fillna(value=baseline_defaults, inplace=True)
+    
+    # Run the feature engineering safely
     df['Total_Liquid'] = df['Oil_Rate'] + df['Water_Rate']
     df['Gas_Liquid_Ratio'] = (df['Gas_Rate'] * 1000) / (df['Total_Liquid'] + 1)
     df['Tubing_Area'] = 3.14159 * (df['Tubing_ID'] / 2)**2
@@ -47,7 +58,6 @@ def predict_single_row(input_dict, model_type):
     
     final_features = base_features + ['Total_Liquid', 'Gas_Liquid_Ratio', 'Liquid_Velocity_Proxy', 'Gas_Velocity_Proxy']
     X = df[final_features].copy()
-    X.fillna(X.median(numeric_only=True), inplace=True)
     
     # Load model and predict
     model, scaler, le = load_artifacts(model_type)
@@ -95,20 +105,21 @@ with tab_vertical:
 
             submit_v = st.form_submit_button("🚀 Generate Prediction", type="primary", use_container_width=True)
 
-        if submit_v:
+       if submit_v:
             manual_data_v = {
                 'MD': md, 'TVD': tvd, 'Tubing_ID': tubing_id, 'Deviation_Angle': dev_angle,
                 'Oil_Rate': oil_rate, 'Water_Rate': water_rate, 'Gas_Rate': gas_rate, 'Water_Cut': water_cut,
                 'GOR': gor, 'Oil_API': oil_api, 'Oil_Viscosity': oil_visc, 'Gas_SG': gas_sg, 'WHP': whp, 'WHT': wht
             }
             
-            # --- SAFETY CHECK: Ensure no fields are left blank ---
-            if None in manual_data_v.values():
-                st.warning("⚠️ Please fill in all fields before generating a prediction.")
-            else:
-                with st.spinner("Analyzing Parameters..."):
-                    result = predict_single_row(manual_data_v, model_type_v)
-                    st.success(f"### 🎯 Recommended Vertical Correlation: **{result}**")
+            with st.spinner("Analyzing Parameters..."):
+                result = predict_single_row(manual_data_v, model_type_v)
+                st.success(f"### 🎯 Recommended Vertical Correlation: **{result}**")
+                
+                # Check if any fields were left blank to inform the user
+                missing_keys = [k for k, v in manual_data_v.items() if v is None]
+                if missing_keys:
+                    st.info(f"💡 **Note:** You left some fields blank. The AI automatically assumed standard baseline values for: {', '.join(missing_keys)}")
 
     else:
         # EXISTING FILE UPLOAD LOGIC
@@ -206,21 +217,21 @@ with tab_horizontal:
             wht = f6.number_input("WHT (°F)", value=None, placeholder="e.g. 155", key="h_wht")
 
             submit_h = st.form_submit_button("🚀 Generate Prediction", type="primary", use_container_width=True)
-
-        if submit_h:
+if submit_h:
             manual_data_h = {
                 'MD': md, 'TVD': tvd, 'Tubing_ID': tubing_id, 'Deviation_Angle': dev_angle,
                 'Oil_Rate': oil_rate, 'Water_Rate': water_rate, 'Gas_Rate': gas_rate, 'Water_Cut': water_cut,
                 'GOR': gor, 'Oil_API': oil_api, 'Oil_Viscosity': oil_visc, 'Gas_SG': gas_sg, 'WHP': whp, 'WHT': wht
             }
             
-            # --- SAFETY CHECK: Ensure no fields are left blank ---
-            if None in manual_data_h.values():
-                st.warning("⚠️ Please fill in all fields before generating a prediction.")
-            else:
-                with st.spinner("Analyzing Parameters..."):
-                    result = predict_single_row(manual_data_h, model_type_h)
-                    st.success(f"### 🎯 Recommended Horizontal Correlation: **{result}**")
+            with st.spinner("Analyzing Parameters..."):
+                result = predict_single_row(manual_data_h, model_type_h)
+                st.success(f"### 🎯 Recommended Horizontal Correlation: **{result}**")
+                
+                # Check if any fields were left blank to inform the user
+                missing_keys = [k for k, v in manual_data_h.items() if v is None]
+                if missing_keys:
+                    st.info(f"💡 **Note:** You left some fields blank. The AI automatically assumed standard baseline values for: {', '.join(missing_keys)}")
 
     else:
         # EXISTING FILE UPLOAD LOGIC
