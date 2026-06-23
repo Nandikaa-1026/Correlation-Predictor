@@ -69,42 +69,46 @@ with tab_vertical:
     st.markdown("<br>", unsafe_allow_html=True)
     
     if input_mode_v == "✍️ Manual Entry":
-        with st.form("manual_form_v"):
+        with st.form("manual_form_v", clear_on_submit=False):
             st.subheader("Well Geometry")
             g1, g2, g3, g4 = st.columns(4)
-            md = g1.number_input("MD (ft)", value=10000.0)
-            tvd = g2.number_input("TVD (ft)", value=8000.0)
-            tubing_id = g3.number_input("Tubing ID (in)", value=2.992)
-            dev_angle = g4.number_input("Deviation Angle (°)", value=0.0)
+            md = g1.number_input("MD (ft)", value=None, placeholder="e.g. 10000")
+            tvd = g2.number_input("TVD (ft)", value=None, placeholder="e.g. 8000")
+            tubing_id = g3.number_input("Tubing ID (in)", value=None, placeholder="e.g. 2.99")
+            dev_angle = g4.number_input("Deviation Angle (°)", value=None, placeholder="e.g. 0")
 
             st.subheader("Production Rates")
             r1, r2, r3, r4 = st.columns(4)
-            oil_rate = r1.number_input("Oil Rate (bopd)", value=500.0)
-            water_rate = r2.number_input("Water Rate (bwpd)", value=100.0)
-            gas_rate = r3.number_input("Gas Rate (mscfd)", value=250.0)
-            water_cut = r4.number_input("Water Cut (%)", value=16.6)
+            oil_rate = r1.number_input("Oil Rate (bopd)", value=None, placeholder="e.g. 500")
+            water_rate = r2.number_input("Water Rate (bwpd)", value=None, placeholder="e.g. 100")
+            gas_rate = r3.number_input("Gas Rate (mscfd)", value=None, placeholder="e.g. 250")
+            water_cut = r4.number_input("Water Cut (%)", value=None, placeholder="e.g. 16.6")
 
             st.subheader("Fluid & Surface Properties")
             f1, f2, f3, f4, f5, f6 = st.columns(6)
-            gor = f1.number_input("GOR (scf/stb)", value=500.0)
-            oil_api = f2.number_input("Oil API", value=35.0)
-            oil_visc = f3.number_input("Oil Viscosity (cP)", value=2.5)
-            gas_sg = f4.number_input("Gas SG", value=0.7)
-            whp = f5.number_input("WHP (psi)", value=250.0)
-            wht = f6.number_input("WHT (°F)", value=140.0)
+            gor = f1.number_input("GOR (scf/stb)", value=None, placeholder="e.g. 500")
+            oil_api = f2.number_input("Oil API", value=None, placeholder="e.g. 35")
+            oil_visc = f3.number_input("Oil Viscosity (cP)", value=None, placeholder="e.g. 2.5")
+            gas_sg = f4.number_input("Gas SG", value=None, placeholder="e.g. 0.7")
+            whp = f5.number_input("WHP (psi)", value=None, placeholder="e.g. 250")
+            wht = f6.number_input("WHT (°F)", value=None, placeholder="e.g. 140")
 
             submit_v = st.form_submit_button("🚀 Generate Prediction", type="primary", use_container_width=True)
 
         if submit_v:
-            # Bundle inputs matching the exact base_features list
             manual_data_v = {
                 'MD': md, 'TVD': tvd, 'Tubing_ID': tubing_id, 'Deviation_Angle': dev_angle,
                 'Oil_Rate': oil_rate, 'Water_Rate': water_rate, 'Gas_Rate': gas_rate, 'Water_Cut': water_cut,
                 'GOR': gor, 'Oil_API': oil_api, 'Oil_Viscosity': oil_visc, 'Gas_SG': gas_sg, 'WHP': whp, 'WHT': wht
             }
-            with st.spinner("Analyzing Parameters..."):
-                result = predict_single_row(manual_data_v, model_type_v)
-                st.success(f"### 🎯 Recommended Vertical Correlation: **{result}**")
+            
+            # --- SAFETY CHECK: Ensure no fields are left blank ---
+            if None in manual_data_v.values():
+                st.warning("⚠️ Please fill in all fields before generating a prediction.")
+            else:
+                with st.spinner("Analyzing Parameters..."):
+                    result = predict_single_row(manual_data_v, model_type_v)
+                    st.success(f"### 🎯 Recommended Vertical Correlation: **{result}**")
 
     else:
         # EXISTING FILE UPLOAD LOGIC
@@ -177,42 +181,46 @@ with tab_horizontal:
     st.markdown("<br>", unsafe_allow_html=True)
     
     if input_mode_h == "✍️ Manual Entry":
-        with st.form("manual_form_h"):
+        with st.form("manual_form_h", clear_on_submit=False):
             st.subheader("Pipeline / Well Geometry")
             g1, g2, g3, g4 = st.columns(4)
-            md = g1.number_input("MD (ft)", value=15000.0, key="h_md")
-            tvd = g2.number_input("TVD (ft)", value=8000.0, key="h_tvd")
-            tubing_id = g3.number_input("Tubing ID (in)", value=2.992, key="h_id")
-            dev_angle = g4.number_input("Deviation Angle (°)", value=90.0, key="h_dev") # Default to 90 for horizontal
+            md = g1.number_input("MD (ft)", value=None, placeholder="e.g. 15000", key="h_md")
+            tvd = g2.number_input("TVD (ft)", value=None, placeholder="e.g. 8000", key="h_tvd")
+            tubing_id = g3.number_input("Tubing ID (in)", value=None, placeholder="e.g. 2.99", key="h_id")
+            dev_angle = g4.number_input("Deviation Angle (°)", value=None, placeholder="e.g. 90", key="h_dev") 
 
             st.subheader("Production Rates")
             r1, r2, r3, r4 = st.columns(4)
-            oil_rate = r1.number_input("Oil Rate (bopd)", value=1200.0, key="h_oil")
-            water_rate = r2.number_input("Water Rate (bwpd)", value=300.0, key="h_wat")
-            gas_rate = r3.number_input("Gas Rate (mscfd)", value=1000.0, key="h_gas")
-            water_cut = r4.number_input("Water Cut (%)", value=20.0, key="h_wc")
+            oil_rate = r1.number_input("Oil Rate (bopd)", value=None, placeholder="e.g. 1200", key="h_oil")
+            water_rate = r2.number_input("Water Rate (bwpd)", value=None, placeholder="e.g. 300", key="h_wat")
+            gas_rate = r3.number_input("Gas Rate (mscfd)", value=None, placeholder="e.g. 1000", key="h_gas")
+            water_cut = r4.number_input("Water Cut (%)", value=None, placeholder="e.g. 20", key="h_wc")
 
             st.subheader("Fluid & Surface Properties")
             f1, f2, f3, f4, f5, f6 = st.columns(6)
-            gor = f1.number_input("GOR (scf/stb)", value=833.0, key="h_gor")
-            oil_api = f2.number_input("Oil API", value=35.0, key="h_api")
-            oil_visc = f3.number_input("Oil Viscosity (cP)", value=3.5, key="h_visc")
-            gas_sg = f4.number_input("Gas SG", value=0.65, key="h_sg")
-            whp = f5.number_input("WHP (psi)", value=450.0, key="h_whp")
-            wht = f6.number_input("WHT (°F)", value=155.0, key="h_wht")
+            gor = f1.number_input("GOR (scf/stb)", value=None, placeholder="e.g. 833", key="h_gor")
+            oil_api = f2.number_input("Oil API", value=None, placeholder="e.g. 35", key="h_api")
+            oil_visc = f3.number_input("Oil Viscosity (cP)", value=None, placeholder="e.g. 3.5", key="h_visc")
+            gas_sg = f4.number_input("Gas SG", value=None, placeholder="e.g. 0.65", key="h_sg")
+            whp = f5.number_input("WHP (psi)", value=None, placeholder="e.g. 450", key="h_whp")
+            wht = f6.number_input("WHT (°F)", value=None, placeholder="e.g. 155", key="h_wht")
 
             submit_h = st.form_submit_button("🚀 Generate Prediction", type="primary", use_container_width=True)
 
         if submit_h:
-            # Bundle inputs
             manual_data_h = {
                 'MD': md, 'TVD': tvd, 'Tubing_ID': tubing_id, 'Deviation_Angle': dev_angle,
                 'Oil_Rate': oil_rate, 'Water_Rate': water_rate, 'Gas_Rate': gas_rate, 'Water_Cut': water_cut,
                 'GOR': gor, 'Oil_API': oil_api, 'Oil_Viscosity': oil_visc, 'Gas_SG': gas_sg, 'WHP': whp, 'WHT': wht
             }
-            with st.spinner("Analyzing Parameters..."):
-                result = predict_single_row(manual_data_h, model_type_h)
-                st.success(f"### 🎯 Recommended Horizontal Correlation: **{result}**")
+            
+            # --- SAFETY CHECK: Ensure no fields are left blank ---
+            if None in manual_data_h.values():
+                st.warning("⚠️ Please fill in all fields before generating a prediction.")
+            else:
+                with st.spinner("Analyzing Parameters..."):
+                    result = predict_single_row(manual_data_h, model_type_h)
+                    st.success(f"### 🎯 Recommended Horizontal Correlation: **{result}**")
 
     else:
         # EXISTING FILE UPLOAD LOGIC
