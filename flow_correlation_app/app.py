@@ -15,7 +15,7 @@ st.markdown("""
     .lunar-title {
         font-family: 'Playfair Display', serif;
         text-align: center; 
-        color: #D4AF47;
+        color: #D4AF37;
         font-weight: 600;
         letter-spacing: 1px;
     }
