@@ -10,16 +10,16 @@ st.set_page_config(page_title="Flow Predictor", layout="wide")
 # --- 2. CUSTOM HEADER ---
 st.markdown("""
     <style>
-    @import url('https://fonts.googleapis.com/css2?family=Playfair+Display:ital,wght@0,400;0,600;1,400&display=swap');
+    @import url('https://fonts.googleapis.com/css2?family=Orbitron:wght@500;700&display=swap');
     </style>
 
-    <div style='text-align: center; color: #D4AF37; font-family: "Playfair Display", serif; font-size: 3rem; font-weight: 600; letter-spacing: 1px; margin-bottom: 10px;'>
+    <div style='text-align: center; color: #00FFA3; font-family: "Orbitron", sans-serif; font-size: 3rem; font-weight: 700; letter-spacing: 2px; margin-bottom: 10px;'>
         Multiphase Flow Correlation Predictor
     </div>
-    <div style='text-align: center; color: #F4EFFF; font-size: 18px; margin-bottom: 20px;'>
+    <div style='text-align: center; color: #C9D1D9; font-size: 18px; margin-bottom: 20px;'>
         Upload a dataset or manually enter parameters to instantly generate AI-driven predictions.
     </div>
-    <hr style='border-color: #2D1B4E;'>
+    <hr style='border-color: #161B22;'>
 """, unsafe_allow_html=True)
 # --- 3. MODEL LOADING ---
 @st.cache_resource
