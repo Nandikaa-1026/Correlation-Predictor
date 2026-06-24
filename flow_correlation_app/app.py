@@ -11,25 +11,16 @@ st.set_page_config(page_title="Flow Predictor", layout="wide")
 st.markdown("""
     <style>
     @import url('https://fonts.googleapis.com/css2?family=Playfair+Display:ital,wght@0,400;0,600;1,400&display=swap');
-    
-    .lunar-title {
-        font-family: 'Playfair Display', serif;
-        text-align: center; 
-        color: #D4AF37;
-        font-weight: 600;
-        letter-spacing: 1px;
-    }
     </style>
 
-    <h1 class='lunar-title'>
+    <h1 style='text-align: center; color: #D4AF37 !important; font-family: "Playfair Display", serif !important; font-weight: 600; letter-spacing: 1px;'>
         Multiphase Flow Correlation Predictor
     </h1>
-    <p style='text-align: center; color: #F4EFFF; font-size: 18px;'>
+    <p style='text-align: center; color: #F4EFFF !important; font-size: 18px;'>
         Upload a dataset or manually enter parameters to instantly generate AI-driven predictions.
     </p>
-    <hr style='border-color: #2D1B4E;'>
+    <hr style='border-color: #2D1B4E !important;'>
 """, unsafe_allow_html=True)
-
 # --- 3. MODEL LOADING ---
 @st.cache_resource
 def load_artifacts(model_type):
