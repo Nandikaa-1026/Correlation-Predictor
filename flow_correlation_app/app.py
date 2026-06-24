@@ -1,5 +1,6 @@
 import streamlit as st
 import pandas as pd
+import numpy as np  # <-- NEW: Required for sorting probabilities
 import joblib
 import os
 
@@ -46,10 +47,9 @@ base_features = [
 ]
 
 # --- HELPER FUNCTION: RUN PREDICTION ON A SINGLE ROW ---
-def predict_single_row(input_dict, model_type):
+def predict_single_row_top3(input_dict, model_type):
     df = pd.DataFrame([input_dict])
     
-    # Define standard baseline values to use IF the user leaves a field blank
     baseline_defaults = {
         'MD': 10000.0, 'TVD': 8000.0, 'Tubing_ID': 2.992, 'Deviation_Angle': 0.0 if model_type == 'vertical' else 90.0,
         'Oil_Rate': 500.0, 'Water_Rate': 100.0, 'Gas_Rate': 250.0, 'Water_Cut': 15.0,
@@ -57,10 +57,8 @@ def predict_single_row(input_dict, model_type):
         'WHP': 250.0, 'WHT': 140.0
     }
     
-    # Fill any blanks (None/NaN) with the baseline defaults
     df.fillna(value=baseline_defaults, inplace=True)
     
-    # Run the feature engineering safely
     df['Total_Liquid'] = df['Oil_Rate'] + df['Water_Rate']
     df['Gas_Liquid_Ratio'] = (df['Gas_Rate'] * 1000) / (df['Total_Liquid'] + 1)
     df['Tubing_Area'] = 3.14159 * (df['Tubing_ID'] / 2)**2
@@ -70,10 +68,19 @@ def predict_single_row(input_dict, model_type):
     final_features = base_features + ['Total_Liquid', 'Gas_Liquid_Ratio', 'Liquid_Velocity_Proxy', 'Gas_Velocity_Proxy']
     X = df[final_features].copy()
     
-    # Load model and predict
     model, scaler, le = load_artifacts(model_type)
-    prediction = model.predict(scaler.transform(X))
-    return le.inverse_transform(prediction)[0]
+    
+    # --- NEW: Get Probabilities instead of just the top prediction ---
+    probs = model.predict_proba(scaler.transform(X))[0]
+    
+    # Sort to find the indices of the top 3 highest probabilities
+    top3_idx = np.argsort(-probs)[:3]
+    
+    # Get the names and confidence scores of the top 3
+    top3_classes = le.inverse_transform(top3_idx)
+    top3_confidences = probs[top3_idx] * 100
+    
+    return top3_classes, top3_confidences
 
 
 # --- 4. TABS LAYOUT ---
@@ -121,13 +128,20 @@ with tab_vertical:
                 'GOR': gor, 'Oil_API': oil_api, 'Oil_Viscosity': oil_visc, 'Gas_SG': gas_sg, 'WHP': whp, 'WHT': wht
             }
             
-            # --- NEW BLANK FORM CHECK ---
             if all(v is None for v in manual_data_v.values()):
                 st.warning("⚠️ You didn't enter any data! Please fill in at least one field to generate a prediction.")
             else:
                 with st.spinner("Analyzing Parameters..."):
-                    result = predict_single_row(manual_data_v, model_type_v)
-                    st.success(f"### 🎯 Recommended Vertical Correlation: **{result}**")
+                    # Capture the new Top 3 outputs
+                    top_classes, top_conf = predict_single_row_top3(manual_data_v, model_type_v)
+                    
+                    st.success("### 🎯 Recommended Vertical Correlations")
+                    
+                    # Display Top 3 elegantly using columns
+                    c1, c2, c3 = st.columns(3)
+                    c1.metric("🥇 1st Choice", top_classes[0], f"{top_conf[0]:.1f}% Confidence")
+                    c2.metric("🥈 2nd Choice", top_classes[1], f"{top_conf[1]:.1f}% Confidence")
+                    c3.metric("🥉 3rd Choice", top_classes[2], f"{top_conf[2]:.1f}% Confidence")
                     
                     missing_keys = [k for k, v in manual_data_v.items() if v is None]
                     if missing_keys:
@@ -173,8 +187,14 @@ with tab_vertical:
                             X = processing_df[final_features].copy()
                             X.fillna(X.median(numeric_only=True), inplace=True)
                             
-                            predictions = model.predict(scaler.transform(X))
-                            df_v['Recommended_Correlation'] = le.inverse_transform(predictions)
+                            # --- NEW: Process top 3 for the entire dataset ---
+                            probs = model.predict_proba(scaler.transform(X))
+                            top3_idx = np.argsort(-probs, axis=1)[:, :3]
+                            
+                            df_v['1st_Choice'] = le.inverse_transform(top3_idx[:, 0])
+                            df_v['2nd_Choice'] = le.inverse_transform(top3_idx[:, 1])
+                            df_v['3rd_Choice'] = le.inverse_transform(top3_idx[:, 2])
+                            
                             st.session_state[memory_tag_v] = df_v
 
         with col2_v:
@@ -184,7 +204,7 @@ with tab_vertical:
                     saved_df_v = st.session_state[memory_tag_v]
                     m1, m2 = st.columns(2)
                     m1.metric("Data Points Processed", len(saved_df_v))
-                    m2.metric("Top Recommendation", saved_df_v['Recommended_Correlation'].mode()[0])
+                    m2.metric("Top Recommended Overall", saved_df_v['1st_Choice'].mode()[0])
                     st.dataframe(saved_df_v, use_container_width=True)
                     csv_v = saved_df_v.to_csv(index=False).encode('utf-8')
                     st.download_button("📥 Download Vertical Predictions", data=csv_v, file_name='vertical_predictions.csv', mime='text/csv', key="dl_v")
@@ -234,13 +254,20 @@ with tab_horizontal:
                 'GOR': gor, 'Oil_API': oil_api, 'Oil_Viscosity': oil_visc, 'Gas_SG': gas_sg, 'WHP': whp, 'WHT': wht
             }
             
-            # --- NEW BLANK FORM CHECK ---
             if all(v is None for v in manual_data_h.values()):
                 st.warning("⚠️ You didn't enter any data! Please fill in at least one field to generate a prediction.")
             else:
                 with st.spinner("Analyzing Parameters..."):
-                    result = predict_single_row(manual_data_h, model_type_h)
-                    st.success(f"### 🎯 Recommended Horizontal Correlation: **{result}**")
+                    # Capture the new Top 3 outputs
+                    top_classes, top_conf = predict_single_row_top3(manual_data_h, model_type_h)
+                    
+                    st.success("### 🎯 Recommended Horizontal Correlations")
+                    
+                    # Display Top 3 elegantly using columns
+                    c1, c2, c3 = st.columns(3)
+                    c1.metric("🥇 1st Choice", top_classes[0], f"{top_conf[0]:.1f}% Confidence")
+                    c2.metric("🥈 2nd Choice", top_classes[1], f"{top_conf[1]:.1f}% Confidence")
+                    c3.metric("🥉 3rd Choice", top_classes[2], f"{top_conf[2]:.1f}% Confidence")
                     
                     missing_keys = [k for k, v in manual_data_h.items() if v is None]
                     if missing_keys:
@@ -286,8 +313,14 @@ with tab_horizontal:
                             X = processing_df[final_features].copy()
                             X.fillna(X.median(numeric_only=True), inplace=True)
                             
-                            predictions = model.predict(scaler.transform(X))
-                            df_h['Recommended_Correlation'] = le.inverse_transform(predictions)
+                            # --- NEW: Process top 3 for the entire dataset ---
+                            probs = model.predict_proba(scaler.transform(X))
+                            top3_idx = np.argsort(-probs, axis=1)[:, :3]
+                            
+                            df_h['1st_Choice'] = le.inverse_transform(top3_idx[:, 0])
+                            df_h['2nd_Choice'] = le.inverse_transform(top3_idx[:, 1])
+                            df_h['3rd_Choice'] = le.inverse_transform(top3_idx[:, 2])
+                            
                             st.session_state[memory_tag_h] = df_h
 
         with col2_h:
@@ -297,7 +330,7 @@ with tab_horizontal:
                     saved_df_h = st.session_state[memory_tag_h]
                     m1, m2 = st.columns(2)
                     m1.metric("Data Points Processed", len(saved_df_h))
-                    m2.metric("Top Recommendation", saved_df_h['Recommended_Correlation'].mode()[0])
+                    m2.metric("Top Recommended Overall", saved_df_h['1st_Choice'].mode()[0])
                     st.dataframe(saved_df_h, use_container_width=True)
                     csv_h = saved_df_h.to_csv(index=False).encode('utf-8')
                     st.download_button("📥 Download Horizontal Predictions", data=csv_h, file_name='horizontal_predictions.csv', mime='text/csv', key="dl_h")
