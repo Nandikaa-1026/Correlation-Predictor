@@ -1,6 +1,6 @@
 import streamlit as st
 import pandas as pd
-import numpy as np  # <-- NEW: Required for sorting probabilities
+import numpy as np
 import joblib
 import os
 
@@ -21,7 +21,8 @@ st.markdown("""
     </div>
     <hr style='border-color: #2D1B4E;'>
 """, unsafe_allow_html=True)
-# --- 3. MODEL LOADING ---
+
+# --- 3. MODEL LOADING & BASELINES ---
 @st.cache_resource
 def load_artifacts(model_type):
     current_dir = os.path.dirname(os.path.abspath(__file__))
@@ -37,19 +38,24 @@ base_features = [
     'Oil_API', 'Oil_Viscosity', 'Gas_SG', 'WHP', 'WHT'
 ]
 
-# --- HELPER FUNCTION: RUN PREDICTION ON A SINGLE ROW ---
-def predict_single_row_top3(input_dict, model_type):
-    df = pd.DataFrame([input_dict])
-    
-    baseline_defaults = {
+# Centralized baseline defaults so the whole app uses the same fallback logic
+def get_baseline_defaults(model_type):
+    return {
         'MD': 10000.0, 'TVD': 8000.0, 'Tubing_ID': 2.992, 'Deviation_Angle': 0.0 if model_type == 'vertical' else 90.0,
         'Oil_Rate': 500.0, 'Water_Rate': 100.0, 'Gas_Rate': 250.0, 'Water_Cut': 15.0,
         'GOR': 500.0, 'Oil_API': 35.0, 'Oil_Viscosity': 2.5, 'Gas_SG': 0.7,
         'WHP': 250.0, 'WHT': 140.0
     }
+
+# --- HELPER FUNCTION: RUN PREDICTION ON A SINGLE ROW ---
+def predict_single_row_top3(input_dict, model_type):
+    df = pd.DataFrame([input_dict])
     
-    df.fillna(value=baseline_defaults, inplace=True)
+    # Fill any blanks (None/NaN) from manual entry with baselines
+    defaults = get_baseline_defaults(model_type)
+    df.fillna(value=defaults, inplace=True)
     
+    # Run the feature engineering safely
     df['Total_Liquid'] = df['Oil_Rate'] + df['Water_Rate']
     df['Gas_Liquid_Ratio'] = (df['Gas_Rate'] * 1000) / (df['Total_Liquid'] + 1)
     df['Tubing_Area'] = 3.14159 * (df['Tubing_ID'] / 2)**2
@@ -59,15 +65,11 @@ def predict_single_row_top3(input_dict, model_type):
     final_features = base_features + ['Total_Liquid', 'Gas_Liquid_Ratio', 'Liquid_Velocity_Proxy', 'Gas_Velocity_Proxy']
     X = df[final_features].copy()
     
+    # Load model and predict probabilities
     model, scaler, le = load_artifacts(model_type)
-    
-    # --- NEW: Get Probabilities instead of just the top prediction ---
     probs = model.predict_proba(scaler.transform(X))[0]
     
-    # Sort to find the indices of the top 3 highest probabilities
     top3_idx = np.argsort(-probs)[:3]
-    
-    # Get the names and confidence scores of the top 3
     top3_classes = le.inverse_transform(top3_idx)
     top3_confidences = probs[top3_idx] * 100
     
@@ -123,12 +125,9 @@ with tab_vertical:
                 st.warning("⚠️ You didn't enter any data! Please fill in at least one field to generate a prediction.")
             else:
                 with st.spinner("Analyzing Parameters..."):
-                    # Capture the new Top 3 outputs
                     top_classes, top_conf = predict_single_row_top3(manual_data_v, model_type_v)
                     
                     st.success("### 🎯 Recommended Vertical Correlations")
-                    
-                    # Display Top 3 elegantly using columns
                     c1, c2, c3 = st.columns(3)
                     c1.metric("🥇 1st Choice", top_classes[0], f"{top_conf[0]:.1f}% Confidence")
                     c2.metric("🥈 2nd Choice", top_classes[1], f"{top_conf[1]:.1f}% Confidence")
@@ -159,34 +158,42 @@ with tab_vertical:
                         st.error(f"Error reading file: {e}")
                         st.stop()
                         
+                    # --- NEW ROBUST UPLOAD LOGIC ---
+                    defaults = get_baseline_defaults(model_type_v)
+                    
+                    # 1. Catch completely missing columns and inject them
                     missing_cols = [col for col in base_features if col not in df_v.columns]
                     if missing_cols:
-                        st.error(f"Missing columns: {', '.join(missing_cols)}")
-                    else:
-                        st.success("✅ Validation Passed!")
-                        with st.spinner("Running AI Model..."):
-                            model, scaler, le = load_artifacts(model_type_v)
-                            processing_df = df_v.copy()
-                            
-                            processing_df['Total_Liquid'] = processing_df['Oil_Rate'] + processing_df['Water_Rate']
-                            processing_df['Gas_Liquid_Ratio'] = (processing_df['Gas_Rate'] * 1000) / (processing_df['Total_Liquid'] + 1)
-                            processing_df['Tubing_Area'] = 3.14159 * (processing_df['Tubing_ID'] / 2)**2
-                            processing_df['Liquid_Velocity_Proxy'] = processing_df['Total_Liquid'] / processing_df['Tubing_Area']
-                            processing_df['Gas_Velocity_Proxy'] = (processing_df['Gas_Rate'] * 1000) / processing_df['Tubing_Area']
-                            
-                            final_features = base_features + ['Total_Liquid', 'Gas_Liquid_Ratio', 'Liquid_Velocity_Proxy', 'Gas_Velocity_Proxy']
-                            X = processing_df[final_features].copy()
-                            X.fillna(X.median(numeric_only=True), inplace=True)
-                            
-                            # --- NEW: Process top 3 for the entire dataset ---
-                            probs = model.predict_proba(scaler.transform(X))
-                            top3_idx = np.argsort(-probs, axis=1)[:, :3]
-                            
-                            df_v['1st_Choice'] = le.inverse_transform(top3_idx[:, 0])
-                            df_v['2nd_Choice'] = le.inverse_transform(top3_idx[:, 1])
-                            df_v['3rd_Choice'] = le.inverse_transform(top3_idx[:, 2])
-                            
-                            st.session_state[memory_tag_v] = df_v
+                        for col in missing_cols:
+                            df_v[col] = defaults[col]
+                        st.info(f"💡 **Note:** Your dataset was missing columns: {', '.join(missing_cols)}. These were filled with standard baselines.")
+                    
+                    # 2. Catch blank cells (NaNs) in existing columns and fill them
+                    df_v.fillna(value=defaults, inplace=True)
+
+                    st.success("✅ Data Processed Successfully!")
+                    with st.spinner("Running AI Model..."):
+                        model, scaler, le = load_artifacts(model_type_v)
+                        processing_df = df_v.copy()
+                        
+                        processing_df['Total_Liquid'] = processing_df['Oil_Rate'] + processing_df['Water_Rate']
+                        processing_df['Gas_Liquid_Ratio'] = (processing_df['Gas_Rate'] * 1000) / (processing_df['Total_Liquid'] + 1)
+                        processing_df['Tubing_Area'] = 3.14159 * (processing_df['Tubing_ID'] / 2)**2
+                        processing_df['Liquid_Velocity_Proxy'] = processing_df['Total_Liquid'] / processing_df['Tubing_Area']
+                        processing_df['Gas_Velocity_Proxy'] = (processing_df['Gas_Rate'] * 1000) / processing_df['Tubing_Area']
+                        
+                        final_features = base_features + ['Total_Liquid', 'Gas_Liquid_Ratio', 'Liquid_Velocity_Proxy', 'Gas_Velocity_Proxy']
+                        X = processing_df[final_features].copy()
+                        
+                        # Process top 3 for the dataset
+                        probs = model.predict_proba(scaler.transform(X))
+                        top3_idx = np.argsort(-probs, axis=1)[:, :3]
+                        
+                        df_v['1st_Choice'] = le.inverse_transform(top3_idx[:, 0])
+                        df_v['2nd_Choice'] = le.inverse_transform(top3_idx[:, 1])
+                        df_v['3rd_Choice'] = le.inverse_transform(top3_idx[:, 2])
+                        
+                        st.session_state[memory_tag_v] = df_v
 
         with col2_v:
             with st.container(border=True):
@@ -249,12 +256,9 @@ with tab_horizontal:
                 st.warning("⚠️ You didn't enter any data! Please fill in at least one field to generate a prediction.")
             else:
                 with st.spinner("Analyzing Parameters..."):
-                    # Capture the new Top 3 outputs
                     top_classes, top_conf = predict_single_row_top3(manual_data_h, model_type_h)
                     
                     st.success("### 🎯 Recommended Horizontal Correlations")
-                    
-                    # Display Top 3 elegantly using columns
                     c1, c2, c3 = st.columns(3)
                     c1.metric("🥇 1st Choice", top_classes[0], f"{top_conf[0]:.1f}% Confidence")
                     c2.metric("🥈 2nd Choice", top_classes[1], f"{top_conf[1]:.1f}% Confidence")
@@ -285,34 +289,42 @@ with tab_horizontal:
                         st.error(f"Error reading file: {e}")
                         st.stop()
                         
+                    # --- NEW ROBUST UPLOAD LOGIC ---
+                    defaults = get_baseline_defaults(model_type_h)
+                    
+                    # 1. Catch completely missing columns and inject them
                     missing_cols = [col for col in base_features if col not in df_h.columns]
                     if missing_cols:
-                        st.error(f"Missing columns: {', '.join(missing_cols)}")
-                    else:
-                        st.success("✅ Validation Passed!")
-                        with st.spinner("Running AI Model..."):
-                            model, scaler, le = load_artifacts(model_type_h)
-                            processing_df = df_h.copy()
-                            
-                            processing_df['Total_Liquid'] = processing_df['Oil_Rate'] + processing_df['Water_Rate']
-                            processing_df['Gas_Liquid_Ratio'] = (processing_df['Gas_Rate'] * 1000) / (processing_df['Total_Liquid'] + 1)
-                            processing_df['Tubing_Area'] = 3.14159 * (processing_df['Tubing_ID'] / 2)**2
-                            processing_df['Liquid_Velocity_Proxy'] = processing_df['Total_Liquid'] / processing_df['Tubing_Area']
-                            processing_df['Gas_Velocity_Proxy'] = (processing_df['Gas_Rate'] * 1000) / processing_df['Tubing_Area']
-                            
-                            final_features = base_features + ['Total_Liquid', 'Gas_Liquid_Ratio', 'Liquid_Velocity_Proxy', 'Gas_Velocity_Proxy']
-                            X = processing_df[final_features].copy()
-                            X.fillna(X.median(numeric_only=True), inplace=True)
-                            
-                            # --- NEW: Process top 3 for the entire dataset ---
-                            probs = model.predict_proba(scaler.transform(X))
-                            top3_idx = np.argsort(-probs, axis=1)[:, :3]
-                            
-                            df_h['1st_Choice'] = le.inverse_transform(top3_idx[:, 0])
-                            df_h['2nd_Choice'] = le.inverse_transform(top3_idx[:, 1])
-                            df_h['3rd_Choice'] = le.inverse_transform(top3_idx[:, 2])
-                            
-                            st.session_state[memory_tag_h] = df_h
+                        for col in missing_cols:
+                            df_h[col] = defaults[col]
+                        st.info(f"💡 **Note:** Your dataset was missing columns: {', '.join(missing_cols)}. These were filled with standard baselines.")
+                    
+                    # 2. Catch blank cells (NaNs) in existing columns and fill them
+                    df_h.fillna(value=defaults, inplace=True)
+
+                    st.success("✅ Validation Passed!")
+                    with st.spinner("Running AI Model..."):
+                        model, scaler, le = load_artifacts(model_type_h)
+                        processing_df = df_h.copy()
+                        
+                        processing_df['Total_Liquid'] = processing_df['Oil_Rate'] + processing_df['Water_Rate']
+                        processing_df['Gas_Liquid_Ratio'] = (processing_df['Gas_Rate'] * 1000) / (processing_df['Total_Liquid'] + 1)
+                        processing_df['Tubing_Area'] = 3.14159 * (processing_df['Tubing_ID'] / 2)**2
+                        processing_df['Liquid_Velocity_Proxy'] = processing_df['Total_Liquid'] / processing_df['Tubing_Area']
+                        processing_df['Gas_Velocity_Proxy'] = (processing_df['Gas_Rate'] * 1000) / processing_df['Tubing_Area']
+                        
+                        final_features = base_features + ['Total_Liquid', 'Gas_Liquid_Ratio', 'Liquid_Velocity_Proxy', 'Gas_Velocity_Proxy']
+                        X = processing_df[final_features].copy()
+                        
+                        # Process top 3 for the dataset
+                        probs = model.predict_proba(scaler.transform(X))
+                        top3_idx = np.argsort(-probs, axis=1)[:, :3]
+                        
+                        df_h['1st_Choice'] = le.inverse_transform(top3_idx[:, 0])
+                        df_h['2nd_Choice'] = le.inverse_transform(top3_idx[:, 1])
+                        df_h['3rd_Choice'] = le.inverse_transform(top3_idx[:, 2])
+                        
+                        st.session_state[memory_tag_h] = df_h
 
         with col2_h:
             with st.container(border=True):
